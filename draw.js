@@ -1,3 +1,6 @@
+/**
+ * Rafael Vargas, 2019
+ */
 var Draw = Draw || {
 
     multiline: function(context, points, opts) {

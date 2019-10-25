@@ -1,3 +1,9 @@
+/**
+ * Code designed and written by Rafael Vargas. 2019
+ * 
+ * Tetris Game Design by Alexey Pajitnov.
+ *  
+ */
 const _PiecesData = [
     // I piece
     [ 
@@ -193,6 +199,9 @@ var Game = {
     paused: false,
     game_over: false,
     score: 0,
+    input_buffer: null,
+    _input_buffer_b: null,
+    last_collision: null,
 
 
     create: function() {
@@ -210,8 +219,11 @@ var Game = {
         this.paused = false;
         this.game_over = false;
         this.score = 0;
-        this.gravity_interval = 200;
+        this.gravity_interval = 300;
         this.next_gravity = performance.now() + this.gravity_interval;
+        this.input_buffer = [];
+        this._input_buffer_b = [];
+        this.last_collision = null;
 
         //first piece
         this.next_piece_id = Math.floor(Math.random()*7);
@@ -220,10 +232,34 @@ var Game = {
     },
 
     update: function(timestamp) {
+
+        //do I really need double buffering for user input??
+        let input_buffer = this.input_buffer;
+        this.input_buffer = this._input_buffer_b;
+        this._input_buffer_b = input_buffer;
+
+        //this gone_down thing is a workaround for doing a lot a things in the gravity_step
+        //this update loop would benefit greatly by breaking gravity_step down in pieces
+        let gone_down = false; 
+        
+        for( let i in input_buffer)  {
+            let code = input_buffer[i];
+           //37-left | 38-up | 39-right | 40-down | 32-space 
+            switch(code) {
+                case 37 /*left*/ : this.move(true); break;
+                case 39 /* up */ : this.move(false); break;
+                case 38 /*right*/: this.rotate(true); break;
+                case 40 /*down*/ : this.gravity_step(); gone_down=true; break;
+                case 81 /* q */  : (this.paused = !this.paused); break; 
+                case 82 /* r */  : this.reset(); break;
+            }
+        }
+        input_buffer.length = 0;
+
         if(this.game_over)
             return;
 
-        if( !this.paused && this.next_gravity < timestamp) {
+        if( !this.paused && this.next_gravity < timestamp && !gone_down) {
             this.next_gravity = timestamp + this.gravity_interval;
             this.gravity_step();
         }
@@ -276,9 +312,10 @@ var Game = {
                 let final_x = new_x+px;
                 let final_y = new_y+py;
                 if( final_x < 0 || final_x>=10 || final_y<0 || final_y >= 40)
-                    continue;
+                    return true;
 
                 if( this.grid[final_y][final_x] != ' ' ) {
+                    this.last_collision = {x:final_x, y:final_y};
                     return true;
                 }
             }
@@ -322,6 +359,7 @@ var Game = {
         return str;
     },
 
+    //moves the piece down, return if it hit the ground level
     gravity_step: function() {
         const bounds = this.piece.bounds();
         if( this.check_collision(0, 1) ||
@@ -330,9 +368,10 @@ var Game = {
             this.consolidate();
             this.remove_lines();
             this.insert_next_piece();
-            return;
+            return true;
         }
         this.piece_y += 1;
+        return false;
     },
 
     consolidate: function() {
@@ -342,34 +381,23 @@ var Game = {
     //try to move the piece, @param left is true for left false for right
     move: function(left) {
         let offset = left? -1: 1; //RIGHT
-        let bounds = this.piece.bounds();
         let new_val = this.piece_x + offset;
 
-        if( new_val + bounds.left < 0) {
-            return;  //clipping left
-        }
+        if( this.check_collision(offset, 0))
+            return;
 
-        if( new_val + bounds.right >= 10) {
-            return; //clipping right
-        }
         this.piece_x = new_val;
     },
 
-    //try to rotate the piiece #param cw is true for clockwise, false for counterclockwise
+    //try to rotate the piece #param cw is true for clockwise, false for counterclockwise
     rotate: function(cw) {
         this.piece.rotate(cw);
+        while( this.check_collision(0,0) )
+            this.piece.rotate(cw);
     },
 
     handleInput: function(code) {
-        //37-left | 38-up | 39-right | 40-down | 32-space 
-        switch(code) {
-            case 37 /*left*/ : this.move(true); break;
-            case 39 /* up */ : this.move(false); break;
-            case 38 /*right*/: this.rotate(true); break;
-            case 40 /*down*/ : this.gravity_step(); break;
-            case 81 /* q */  : (this.paused = !this.paused); break; 
-            case 82 /* r */  : this.reset(); break;
-        }
+        this.input_buffer.push(code);
     },
 
     render: function(ctx, screen_x, screen_y, sq_size) {
@@ -386,6 +414,11 @@ var Game = {
                 if( this.tmpgrid[y][x] != ' ' ) color = 'black';
 
                 Draw.rect(ctx, cur_x, cur_y, sq_size-1, s-1, {style: color, filled:true}  );
+                // if(this.last_collision && this.last_collision.x == x &&
+                //     this.last_collision.y == y) {
+                //         Draw.rect( ctx, cur_x, cur_y, sq_size-1, s-1, {style:'red', filled:false} );
+                // }
+
                 cur_x += sq_size;
             }
             cur_y += s;
@@ -434,16 +467,14 @@ window.onload = function() {
         context.clearRect(0, 0, width, height);
         game.update(stamp);
         game.render(context, 200, 150, 30);
-
     };
-
-    // document.body.addEventListener("click", function(){
-    // });    
 
     document.body.onkeydown = function(e) {
         game.handleInput(e.keyCode);
-        str =  "keycode = " + e.keyCode + "<br/>";
+        str =  `keycode = ${e.keyCode}<br/>`;
         debug.innerHTML = str;
     }
+
+
 }
 
